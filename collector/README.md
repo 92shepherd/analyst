@@ -99,6 +99,45 @@ pytest          # 유즈케이스/Mapper 단위 테스트 (포트는 mock)
 
 각 잡은 해당 시장만 필터링해 수집하므로 국장/미장을 서로 다른 시각에 자동 수집한다.
 
+## 수집 작업 기록/조회
+
+collector가 떠 있는 동안 수행한/수행 중인 수집 실행을 **런(job run) 단위(1행/실행)**로
+`collector.collection_runs`에 기록한다. 스케줄 잡과 수동 트리거(`POST /collect/daily`)가
+모두 `CollectionRunService`를 경유하므로 기록 경로가 하나로 통일된다.
+
+런 1건은 시작 시 `RUNNING`으로 insert 되고, 종료 시 집계 카운트와 함께 최종 상태로 update 된다
+(런당 DB 쓰기 2회). 상태 판정은 실패 0 → `SUCCEEDED`, 일부 실패 → `PARTIAL`,
+전부 실패/실행 예외 → `FAILED`. 비정상 종료로 `RUNNING`에 남은 런은 **기동 시**
+`mark_orphans_interrupted()`가 `INTERRUPTED`로 정리한다(단일 인스턴스 전제).
+
+| 컬럼 | 내용 |
+| --- | --- |
+| `job_type` | `DOMESTIC` / `OVERSEAS` / `MANUAL` |
+| `markets` | 요청 시장(예: `KOSPI,KOSDAQ`, 빈 값=전 시장) |
+| `status` | `RUNNING` / `SUCCEEDED` / `PARTIAL` / `FAILED` / `INTERRUPTED` |
+| `started_at` / `finished_at` | 시작·종료 시각(tz) |
+| `total_stocks` / `succeeded` / `failed` / `rows_written` | 집계 카운트 |
+| `error_summary` | 실패 사유 요약(상위 20건) |
+
+조회 엔드포인트:
+
+| 메서드·경로 | 설명 |
+| --- | --- |
+| `GET /runs?limit=50` | 최근 수집 런 이력(started_at 내림차순) |
+| `GET /runs/{id}` | 단일 런 상세 |
+| `GET /jobs` | 스케줄 잡의 다음 실행 시각 + 현재 실행 중(`RUNNING`) 런 |
+
+```bash
+curl localhost:8000/runs?limit=20      # 최근 이력
+curl localhost:8000/jobs               # 다음 실행 예정 + 진행 중 런
+```
+
+`POST /collect/daily` 응답에는 발급된 `run_id`가 포함되어 이후 `GET /runs/{id}`로 추적할 수 있다.
+
+> 설계 위치: `CollectionRun`(도메인 ORM), `CollectionRunRepositoryPort`(포트),
+> `CollectionRunService`(횡단 관심사 — 핵심 use case는 그대로 두고 기록만 래핑),
+> `SqlAlchemyCollectionRunRepository`(어댑터). `/jobs`의 스케줄러 조회는 `app.state.scheduler`를 본다.
+
 ## 설계 메모
 
 - KIS 호출은 `infrastructure/kis` 클라이언트와 `adapters/outbound/kis` 어댑터만 경유한다.
