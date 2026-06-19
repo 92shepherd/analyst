@@ -9,12 +9,18 @@ import logging
 from datetime import date
 from typing import Protocol
 
-from collector.adapters.outbound.kis.mapper import map_domestic_row, map_overseas_row
+from collector.adapters.outbound.kis.mapper import (
+    map_domestic_row,
+    map_domestic_valuation,
+    map_overseas_row,
+)
+from collector.application.ports import DailyMarketData
 from collector.domain import (
     DailyPrice,
     Market,
     MarketDataUnavailableError,
     Stock,
+    ValuationSnapshot,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,14 +55,14 @@ class KisMarketDataAdapter:
         self._client = client
         self._tr = tr
 
-    async def fetch_daily_prices(
+    async def fetch_daily(
         self, stock: Stock, start: date, end: date
-    ) -> list[DailyPrice]:
+    ) -> DailyMarketData:
         try:
             if stock.market.is_domestic:
-                prices = await self._fetch_domestic(stock, start, end)
+                prices, valuation = await self._fetch_domestic(stock, start, end)
             else:
-                prices = await self._fetch_overseas(stock, start, end)
+                prices, valuation = await self._fetch_overseas(stock, start, end)
         except MarketDataUnavailableError:
             raise
         except Exception as exc:  # 외부 응답/네트워크 오류를 도메인 예외로 매핑
@@ -67,11 +73,11 @@ class KisMarketDataAdapter:
         # 구간 필터 + 거래일 오름차순 정렬.
         prices = [p for p in prices if start <= p.trade_date <= end]
         prices.sort(key=lambda p: p.trade_date)
-        return prices
+        return DailyMarketData(prices=prices, valuation=valuation)
 
     async def _fetch_domestic(
         self, stock: Stock, start: date, end: date
-    ) -> list[DailyPrice]:
+    ) -> tuple[list[DailyPrice], ValuationSnapshot | None]:
         params = {
             "FID_COND_MRKT_DIV_CODE": "J",
             "FID_INPUT_ISCD": str(stock.ticker),
@@ -87,11 +93,21 @@ class KisMarketDataAdapter:
         )
         self._raise_on_error(body, stock)
         rows = body.get("output2") or []
-        return [map_domestic_row(stock, r) for r in rows if r.get("stck_bsop_date")]
+        prices = [
+            map_domestic_row(stock, r) for r in rows if r.get("stck_bsop_date")
+        ]
+        # output1(요약)에서 밸류에이션 스냅샷 추출(추가 호출 없음). 스냅샷 거래일은
+        # 응답에 포함된 가장 최근 거래일(없으면 요청 종료일)로 둔다.
+        as_of = max((p.trade_date for p in prices), default=end)
+        output1 = body.get("output1") or {}
+        valuation = (
+            map_domestic_valuation(stock, output1, as_of) if output1 else None
+        )
+        return prices, valuation
 
     async def _fetch_overseas(
         self, stock: Stock, start: date, end: date
-    ) -> list[DailyPrice]:
+    ) -> tuple[list[DailyPrice], ValuationSnapshot | None]:
         excd = _OVERSEAS_EXCHANGE_CODE.get(stock.market)
         if excd is None:
             raise MarketDataUnavailableError(
@@ -112,7 +128,9 @@ class KisMarketDataAdapter:
         )
         self._raise_on_error(body, stock)
         rows = body.get("output2") or []
-        return [map_overseas_row(stock, r) for r in rows if r.get("xymd")]
+        prices = [map_overseas_row(stock, r) for r in rows if r.get("xymd")]
+        # 해외는 KIS가 PER/PBR/EPS/BPS를 제공하지 않는다 → 밸류에이션 없음(best-effort).
+        return prices, None
 
     @staticmethod
     def _raise_on_error(body: dict, stock: Stock) -> None:

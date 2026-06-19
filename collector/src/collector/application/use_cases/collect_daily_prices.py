@@ -14,6 +14,7 @@ from collector.application.ports import (
     MarketDataPort,
     PriceRepositoryPort,
     StockRepositoryPort,
+    ValuationRepositoryPort,
 )
 from collector.domain import Market, MarketDataUnavailableError, Stock
 
@@ -46,6 +47,7 @@ class CollectDailyPricesResult:
     succeeded: int = 0
     failed: int = 0
     rows_written: int = 0
+    valuations_written: int = 0  # 적재한 밸류에이션 스냅샷 수(부가 지표)
     failures: list[tuple[str, str]] = field(default_factory=list)  # (ticker, reason)
 
 
@@ -55,10 +57,13 @@ class CollectDailyPricesUseCase:
         stock_repo: StockRepositoryPort,
         market_data: MarketDataPort,
         price_repo: PriceRepositoryPort,
+        valuation_repo: ValuationRepositoryPort | None = None,
     ) -> None:
         self._stock_repo = stock_repo
         self._market_data = market_data
         self._price_repo = price_repo
+        # 밸류에이션(PER/PBR/EPS/BPS) 스냅샷 적재 포트(옵션). 없으면 가격만 수집.
+        self._valuation_repo = valuation_repo
 
     async def execute(
         self, command: CollectDailyPricesCommand | None = None
@@ -101,11 +106,14 @@ class CollectDailyPricesUseCase:
                     result.succeeded += 1
                     return
 
-                prices = await self._market_data.fetch_daily_prices(stock, start, end)
-                written = await self._price_repo.save_daily_prices(prices)
+                data = await self._market_data.fetch_daily(stock, start, end)
+                written = await self._price_repo.save_daily_prices(data.prices)
 
                 result.succeeded += 1
                 result.rows_written += written
+
+                # 밸류에이션은 부가 지표 — 적재 실패가 주가 수집 성공에 영향 주지 않음.
+                await self._save_valuation(stock, data.valuation, result)
             except MarketDataUnavailableError as exc:
                 result.failed += 1
                 result.failures.append((str(stock.ticker), str(exc)))
@@ -114,6 +122,16 @@ class CollectDailyPricesUseCase:
                 result.failed += 1
                 result.failures.append((str(stock.ticker), repr(exc)))
                 logger.exception("종목 처리 중 예외 %s", stock.ticker)
+
+    async def _save_valuation(self, stock: Stock, valuation, result) -> None:
+        """밸류에이션 스냅샷 적재(best-effort). 포트 미주입/스냅샷 없음/예외는 조용히 무시."""
+        if self._valuation_repo is None or valuation is None:
+            return
+        try:
+            await self._valuation_repo.save_snapshot(valuation)
+            result.valuations_written += 1
+        except Exception:  # noqa: BLE001 - 부가 지표라 주가 수집 성공을 깨지 않음
+            logger.exception("밸류에이션 스냅샷 적재 실패 %s", stock.ticker)
 
     async def _resolve_start_date(
         self, stock: Stock, end: date, lookback_days: int

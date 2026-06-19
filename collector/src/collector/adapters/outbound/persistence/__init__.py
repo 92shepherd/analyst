@@ -2,9 +2,11 @@
 from .collection_run_repository import SqlAlchemyCollectionRunRepository
 from .price_repository import SqlAlchemyPriceRepository
 from .stock_repository import SqlAlchemyStockRepository
+from .valuation_repository import SqlAlchemyValuationRepository
 
 __all__ = [
     "SqlAlchemyStockRepository",
     "SqlAlchemyPriceRepository",
+    "SqlAlchemyValuationRepository",
     "SqlAlchemyCollectionRunRepository",
 ]

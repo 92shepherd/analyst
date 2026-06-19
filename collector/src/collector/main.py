@@ -21,6 +21,7 @@ from collector.adapters.outbound.persistence import (
     SqlAlchemyCollectionRunRepository,
     SqlAlchemyPriceRepository,
     SqlAlchemyStockRepository,
+    SqlAlchemyValuationRepository,
 )
 from collector.application.services import CollectionRunService
 from collector.application.use_cases import CollectDailyPricesUseCase
@@ -58,6 +59,7 @@ def build_container(settings: Settings | None = None) -> Container:
     market_data = KisMarketDataAdapter(kis_client, settings)
     stock_repo = SqlAlchemyStockRepository(session_factory)
     price_repo = SqlAlchemyPriceRepository(session_factory)
+    valuation_repo = SqlAlchemyValuationRepository(session_factory)
     run_repo = SqlAlchemyCollectionRunRepository(session_factory)
 
     # application
@@ -65,6 +67,7 @@ def build_container(settings: Settings | None = None) -> Container:
         stock_repo=stock_repo,
         market_data=market_data,
         price_repo=price_repo,
+        valuation_repo=valuation_repo,
     )
     run_service = CollectionRunService(use_case=use_case, run_repo=run_repo)
     schedule_handler = DailyCollectionScheduleHandler(run_service)

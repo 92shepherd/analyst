@@ -14,6 +14,7 @@ from .errors import (
 from .market import Country, Market
 from .price import DailyPrice
 from .stock import Stock
+from .valuation import ValuationSnapshot
 
 __all__ = [
     "Base",
@@ -22,6 +23,7 @@ __all__ = [
     "Market",
     "Stock",
     "DailyPrice",
+    "ValuationSnapshot",
     "CollectionRun",
     "JobType",
     "RunStatus",

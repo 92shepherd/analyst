@@ -30,8 +30,9 @@ infrastructure (KIS HTTP/DB/스케줄러/FastAPI)
    - 국내: `inquire-daily-itemchartprice` (TR `FHKST03010100`)
    - 해외: `overseas-price/.../dailyprice` (TR `HHDFS76240000`)
 3. `(ticker, market, trade_date)` 기준 **멱등 upsert**로 `collector.daily_prices`에 적재.
+4. 같은 일봉 호출 응답(국내 `output1`)에서 **밸류에이션 스냅샷**(PER/PBR/EPS/BPS)을 추출해 `collector.valuation_snapshots`에 적재(아래 "밸류에이션 스냅샷" 참고).
 
-이 출력 테이블은 `analyst`가 읽는 **계약**이다. 스키마 변경 시 문서화한다.
+이 출력 테이블(`daily_prices`, `valuation_snapshots`)은 `analyst`가 읽는 **계약**이다. 스키마 변경 시 문서화한다.
 
 ## 실행
 
@@ -133,6 +134,31 @@ curl localhost:8000/jobs               # 다음 실행 예정 + 진행 중 런
 ```
 
 `POST /collect/daily` 응답에는 발급된 `run_id`가 포함되어 이후 `GET /runs/{id}`로 추적할 수 있다.
+
+## 밸류에이션 스냅샷 (PER/PBR/EPS/BPS)
+
+주가를 수집하는 시점의 시장 밸류에이션을 주가와 **별도 테이블** `collector.valuation_snapshots`에 적재한다.
+주가에 따라 매 거래일 값이 바뀌므로 `(ticker, market, trade_date)` 단위 1행으로 멱등 저장한다.
+
+데이터 소스는 **국내 일봉 호출의 응답 `output1`(요약)을 재사용**한다. 즉 추가 KIS 호출 없이 일봉과 같은
+응답에서 PER/EPS/PBR을 추출한다. KIS 일봉 응답에는 BPS가 직접 없어 **BPS = 주가 ÷ PBR**로 유도한다.
+
+| 컬럼 | 내용 |
+| --- | --- |
+| `per` / `pbr` / `eps` | 일봉 응답 output1에서 직접 추출(미제공/0은 NULL) |
+| `bps` | 주가(stck_prpr) ÷ PBR 로 유도(파생) |
+| `trade_date` | 응답에 포함된 가장 최근 거래일 |
+| `collected_at` | 적재 시각 |
+
+특성·제약:
+
+- **국내 전용 실데이터**. 해외(나스닥/뉴욕)는 KIS가 이 지표를 제공하지 않아 스냅샷이 생성되지 않는다(best-effort, 테이블/코드는 해외도 열려 있음).
+- PER·EPS는 적자 종목에서 음수가 될 수 있어 비음수 제약을 두지 않는다(모든 값 nullable).
+- 밸류에이션 적재는 **부가 지표**다. 추출/적재가 실패해도 주가 수집 성공에는 영향을 주지 않는다(예외를 삼키고 로깅).
+- 적재 수는 수집 결과의 `valuations_written`으로 집계된다.
+
+> 설계 위치: `ValuationSnapshot`(도메인 ORM), `MarketDataPort.fetch_daily`(가격+밸류에이션 동시 반환 `DailyMarketData`),
+> `mapper.map_domestic_valuation`(output1→스냅샷), `ValuationRepositoryPort`/`SqlAlchemyValuationRepository`(upsert).
 
 > 설계 위치: `CollectionRun`(도메인 ORM), `CollectionRunRepositoryPort`(포트),
 > `CollectionRunService`(횡단 관심사 — 핵심 use case는 그대로 두고 기록만 래핑),

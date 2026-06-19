@@ -15,6 +15,7 @@ from collector.domain import (
     Market,
     RunStatus,
     Stock,
+    ValuationSnapshot,
 )
 
 
@@ -44,6 +45,16 @@ class PriceRepositoryPort(Protocol):
         """해당 종목의 가장 최근 적재 거래일. 없으면 None.
 
         증분 수집 시 시작일 계산에 사용한다.
+        """
+        ...
+
+
+@runtime_checkable
+class ValuationRepositoryPort(Protocol):
+    async def save_snapshot(self, snapshot: ValuationSnapshot) -> None:
+        """밸류에이션 스냅샷 1건을 upsert 한다.
+
+        (ticker, market, trade_date) 유니크 키 기준 멱등 적재.
         """
         ...
 
