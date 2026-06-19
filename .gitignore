@@ -1,0 +1,119 @@
+# ──────────────────────────────────────────────
+# 주식 자동매매 시스템 (Python / Go / TypeScript 모노레포)
+# ──────────────────────────────────────────────
+
+# ===== Secrets / 환경변수 =====
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+*.p12
+secrets/
+
+# ===== OS =====
+.DS_Store
+.AppleDouble
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# ===== 에디터 / IDE =====
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.iml
+
+# ===== 로그 / 임시 =====
+*.log
+logs/
+tmp/
+*.tmp
+
+# ──────────────────────────────────────────────
+# Python (collector / analyst / trading)
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+.installed.cfg
+
+# 가상환경
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# 테스트 / 정적분석 캐시
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+.hypothesis/
+
+# ──────────────────────────────────────────────
+# Go (auth-server)
+# ──────────────────────────────────────────────
+# 컴파일 산출물
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+# 테스트 바이너리 / 프로파일
+*.test
+*.out
+# 워크스페이스
+go.work
+go.work.sum
+# vendor 는 보통 커밋하므로 무시하지 않음 (필요 시 주석 해제)
+# vendor/
+
+# ──────────────────────────────────────────────
+# TypeScript / Node (web-front)
+# ──────────────────────────────────────────────
+node_modules/
+# 빌드 산출물
+dist/
+build/
+out/
+.next/
+.nuxt/
+.svelte-kit/
+.turbo/
+# 캐시 / 메타
+*.tsbuildinfo
+.eslintcache
+.cache/
+.parcel-cache/
+# 패키지 매니저 로그 / pnp
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp.*
+# 커버리지
+coverage/
+
+# ──────────────────────────────────────────────
+# Docker / 인프라
+# ──────────────────────────────────────────────
+*.pid
+docker-compose.override.yml

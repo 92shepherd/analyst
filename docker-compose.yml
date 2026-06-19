@@ -1,0 +1,51 @@
+# 주식 자동매매 시스템 - 루트 Docker Compose
+# 현재 포함: db(PostgreSQL 16), collector(시세 일봉 수집, 단계 ①)
+# auth-server/analyst/trading/web-front 는 추후 서비스로 추가.
+
+services:
+  db:
+    image: postgres:16
+    container_name: trading-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-trading}
+    ports:
+      # 호스트 포트는 .env(POSTGRES_PORT)로 제어. 컨테이너 내부는 5432 고정.
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-trading}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  collector:
+    build: ./collector
+    container_name: trading-collector
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # KIS 인증/환경 (기본: 모의투자). 실제 값은 .env 로 주입.
+      COLLECTOR_KIS_ENV: ${COLLECTOR_KIS_ENV:-paper}
+      COLLECTOR_KIS_APP_KEY: ${COLLECTOR_KIS_APP_KEY:-}
+      COLLECTOR_KIS_APP_SECRET: ${COLLECTOR_KIS_APP_SECRET:-}
+      # 컨테이너 네트워크 내 db 호스트로 접속.
+      COLLECTOR_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-trading}
+      # 앱이 리슨하는 컨테이너 내부 포트(.env: COLLECTOR_API_PORT).
+      COLLECTOR_API_HOST: ${COLLECTOR_API_HOST:-0.0.0.0}
+      COLLECTOR_API_PORT: ${COLLECTOR_API_PORT:-8000}
+      # 수집 스케줄 (국장/미장 분리). 필요 시 .env 로 변경.
+      COLLECTOR_DOMESTIC_CRON: ${COLLECTOR_DOMESTIC_CRON:-0 16 * * mon-fri}
+      COLLECTOR_OVERSEAS_CRON: ${COLLECTOR_OVERSEAS_CRON:-0 7 * * tue-sat}
+      COLLECTOR_TIMEZONE: ${COLLECTOR_TIMEZONE:-Asia/Seoul}
+    ports:
+      # "호스트:컨테이너" 모두 .env로 제어. 컨테이너 포트는 COLLECTOR_API_PORT와 일치.
+      - "${COLLECTOR_HOST_PORT:-8001}:${COLLECTOR_API_PORT:-8000}"
+    restart: unless-stopped
+
+volumes:
+  db-data:
