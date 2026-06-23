@@ -1,0 +1,50 @@
+name: Build and Push collector to ECR
+
+# main 브랜치에 push될 때마다 collector 이미지를 빌드해 ECR로 푸시한다.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+# OIDC로 IAM Role을 assume하기 위해 id-token 권한이 필요하다.
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ap-southeast-2
+  # ECR 리포지토리 이름 (AWS에 미리 생성되어 있어야 함)
+  ECR_REPOSITORY: analyst-collector
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # OIDC로 AWS 자격증명 획득. AWS_ROLE_ARN은 레포 Secret으로 등록.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./collector
+          file: ./collector/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
